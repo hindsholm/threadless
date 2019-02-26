@@ -33,8 +33,8 @@ public class Main {
     }
 
     // indices of command line parameters
-    private static final int IDX_URI = 0;
-    private static final int IDX_KEY = 1;
+    private static final int IDX_KEY = 0;
+    private static final int IDX_URI = 1;
 
     // exit codes for runtime errors
     private static final int ERR_MISSING_URI = 1;
@@ -61,6 +61,9 @@ public class Main {
         int idx = 0;
         for (String arg : args) {
             switch (idx) {
+                case IDX_KEY:
+                    key = arg;
+                    break;
                 case IDX_URI:
                     try {
                         uri = new URI(arg);
@@ -68,9 +71,6 @@ public class Main {
                         System.err.println("Failed to parse URI: " + e.getMessage());
                         System.exit(ERR_BAD_URI);
                     }
-                    break;
-                case IDX_KEY:
-                    key = arg;
                     break;
                 default:
                     System.out.println("Unexpected argument: " + arg);
@@ -145,10 +145,10 @@ public class Main {
     public static void printInfo() {
         System.out.println("Traadfri Client");
         System.out.println();
-        System.out.println("Usage: " + Main.class.getSimpleName() + " URI KEY");
+        System.out.println("Usage: " + Main.class.getSimpleName() + " KEY URI");
+        System.out.println("  KEY     : The key printed at the bottom of the Traadfri Gateway");
         System.out.println("  URI     : The CoAP URI of the remote endpoint or resource");
         System.out.println("            A coaps URI will automatically use CoAP over DTLS");
-        System.out.println("  KEY     : The key printed at the bottom of the Traadfri Gateway");
     }
 
 }
