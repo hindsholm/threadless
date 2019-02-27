@@ -1,14 +1,22 @@
 package dk.hindsholm.threadless;
 
 import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.GeneralSecurityException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
-
+import javax.json.Json;
+import javax.json.JsonReader;
+import javax.json.JsonValue;
+import javax.json.JsonWriter;
+import javax.json.JsonWriterFactory;
+import javax.json.stream.JsonGenerator;
 import org.eclipse.californium.core.CaliforniumLogger;
-import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
@@ -27,68 +35,30 @@ public class Main {
     static {
         CaliforniumLogger.initialize();
         CaliforniumLogger.setLevel(Level.WARNING);
-
         ScandiumLogger.initialize();
-        ScandiumLogger.setLevel(Level.INFO);
+        ScandiumLogger.setLevel(Level.WARNING);
     }
 
-    // indices of command line parameters
-    private static final int IDX_KEY = 0;
-    private static final int IDX_URI = 1;
-
-    // exit codes for runtime errors
-    private static final int ERR_MISSING_URI = 1;
-    private static final int ERR_MISSING_KEY = 2;
-    private static final int ERR_BAD_URI = 3;
-    private static final int ERR_REQUEST_FAILED = 4;
-    private static final int ERR_RESPONSE_FAILED = 5;
-
-    // parameters
-    static URI uri;
-    static String key;
-
-    // for coaps
-    private static Endpoint dtlsEndpoint;
+    private static final int ERR_BAD_URI = 1;
+    private static final int ERR_REQUEST_FAILED = 2;
+    private static final int ERR_RESPONSE_FAILED = 3;
 
     public static void main(String[] args) throws IOException, GeneralSecurityException {
 
-        if (args.length == 0) {
-            printInfo();
+        if (args.length != 2) {
+            usage();
             return;
         }
 
-        // input parameters
-        int idx = 0;
-        for (String arg : args) {
-            switch (idx) {
-                case IDX_KEY:
-                    key = arg;
-                    break;
-                case IDX_URI:
-                    try {
-                        uri = new URI(arg);
-                    } catch (URISyntaxException e) {
-                        System.err.println("Failed to parse URI: " + e.getMessage());
-                        System.exit(ERR_BAD_URI);
-                    }
-                    break;
-                default:
-                    System.out.println("Unexpected argument: " + arg);
-            }
-            ++idx;
+        String key = args[0];
+        URI uri = null;
+        try {
+            uri = new URI(args[1]);
+        } catch (URISyntaxException e) {
+            System.err.println("Failed to parse URI: " + e.getMessage());
+            System.exit(ERR_BAD_URI);
         }
 
-        // check if mandatory parameters specified
-        if (uri == null) {
-            System.err.println("URI not specified");
-            System.exit(ERR_MISSING_URI);
-        }
-        if (key == null) {
-            System.err.println("KEY not specified");
-            System.exit(ERR_MISSING_KEY);
-        }
-
-        // create request
         Request request = Request.newGet();
         request.setURI(uri);
         request.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
@@ -99,14 +69,12 @@ public class Main {
         pskStore.addKnownPeer(address, "", key.getBytes());
         builder.setPskStore(pskStore);
         builder.setSupportedCipherSuites(new CipherSuite[]{CipherSuite.TLS_PSK_WITH_AES_128_CCM_8});
-
         DTLSConnector dtlsconnector = new DTLSConnector(builder.build(), null);
 
-        dtlsEndpoint = new CoapEndpoint(dtlsconnector, NetworkConfig.getStandard());
+        Endpoint dtlsEndpoint = new CoapEndpoint(dtlsconnector, NetworkConfig.getStandard());
         dtlsEndpoint.start();
         EndpointManager.getEndpointManager().setDefaultSecureEndpoint(dtlsEndpoint);
 
-        // execute request
         try {
             request.send();
 
@@ -119,13 +87,20 @@ public class Main {
             }
 
             if (response != null) {
-                System.out.println(Utils.prettyPrint(response));
-                System.out.println("Time elapsed (ms): " + response.getRTT());
-                // check if response contains resources
-                if (response.getOptions().isContentFormat(MediaTypeRegistry.APPLICATION_LINK_FORMAT)) {
-                    String linkFormat = response.getPayloadString();
-                    System.out.println("\nDiscovered resources:");
-                    System.out.println(linkFormat);
+                switch (response.getOptions().getContentFormat()) {
+                    case MediaTypeRegistry.APPLICATION_LINK_FORMAT:
+                        String linkFormat = response.getPayloadString();
+                        System.out.println("Discovered resources:\n" + linkFormat);
+                        break;
+                    case MediaTypeRegistry.APPLICATION_JSON:
+                        String json = response.getPayloadString();
+                        JsonReader jsonReader = Json.createReader(new StringReader(json));
+                        JsonValue value = jsonReader.readValue();
+                        String formatted = formatJson(value);
+                        System.out.println("JSON payload:\n" + formatted);
+                        break;
+                    default:
+                        System.err.println("Unknown content format: " + response.getOptions().getContentFormat());
                 }
             } else {
                 System.err.println("Request timed out");
@@ -135,14 +110,22 @@ public class Main {
             System.err.println("Failed to execute request: " + e.getMessage());
             System.exit(ERR_REQUEST_FAILED);
         }
-        
+
         System.exit(0);
     }
 
-    /*
-	 * Outputs user guide of this program.
-     */
-    public static void printInfo() {
+    static String formatJson(JsonValue value) {
+        Map<String, String> config = new HashMap<>();
+        config.put(JsonGenerator.PRETTY_PRINTING, "");
+        JsonWriterFactory factory = Json.createWriterFactory(config);
+        StringWriter stringWriter = new StringWriter();
+        try (JsonWriter jsonWriter = factory.createWriter(stringWriter)) {
+            jsonWriter.write(value);
+        }
+        return stringWriter.toString();
+    }
+
+    public static void usage() {
         System.out.println("Traadfri Client");
         System.out.println();
         System.out.println("Usage: " + Main.class.getSimpleName() + " KEY URI");
