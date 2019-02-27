@@ -9,41 +9,33 @@ import java.net.URISyntaxException;
 import java.security.GeneralSecurityException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.logging.Level;
+import java.util.logging.LogManager;
 import javax.json.Json;
 import javax.json.JsonReader;
 import javax.json.JsonValue;
 import javax.json.JsonWriter;
 import javax.json.JsonWriterFactory;
 import javax.json.stream.JsonGenerator;
-import org.eclipse.californium.core.CaliforniumLogger;
 import org.eclipse.californium.core.coap.MediaTypeRegistry;
 import org.eclipse.californium.core.coap.Request;
 import org.eclipse.californium.core.coap.Response;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.Endpoint;
 import org.eclipse.californium.core.network.EndpointManager;
-import org.eclipse.californium.core.network.config.NetworkConfig;
 import org.eclipse.californium.scandium.DTLSConnector;
-import org.eclipse.californium.scandium.ScandiumLogger;
 import org.eclipse.californium.scandium.config.DtlsConnectorConfig;
 import org.eclipse.californium.scandium.dtls.cipher.CipherSuite;
 import org.eclipse.californium.scandium.dtls.pskstore.InMemoryPskStore;
 
 public class Main {
 
-    static {
-        CaliforniumLogger.initialize();
-        CaliforniumLogger.setLevel(Level.WARNING);
-        ScandiumLogger.initialize();
-        ScandiumLogger.setLevel(Level.WARNING);
-    }
-
     private static final int ERR_BAD_URI = 1;
     private static final int ERR_REQUEST_FAILED = 2;
     private static final int ERR_RESPONSE_FAILED = 3;
 
     public static void main(String[] args) throws IOException, GeneralSecurityException {
+
+        LogManager.getLogManager().readConfiguration(Main.class.getClassLoader().getResourceAsStream("logging.properties"));
 
         if (args.length != 2) {
             usage();
@@ -63,7 +55,8 @@ public class Main {
         request.setURI(uri);
         request.getOptions().setContentFormat(MediaTypeRegistry.TEXT_PLAIN);
 
-        DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder(new InetSocketAddress(0));
+        DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder();
+        builder.setAddress(new InetSocketAddress(0));
         InMemoryPskStore pskStore = new InMemoryPskStore();
         InetSocketAddress address = new InetSocketAddress(request.getDestination(), request.getDestinationPort());
         pskStore.addKnownPeer(address, "", key.getBytes());
@@ -71,9 +64,11 @@ public class Main {
         builder.setSupportedCipherSuites(new CipherSuite[]{CipherSuite.TLS_PSK_WITH_AES_128_CCM_8});
         DTLSConnector dtlsconnector = new DTLSConnector(builder.build(), null);
 
-        Endpoint dtlsEndpoint = new CoapEndpoint(dtlsconnector, NetworkConfig.getStandard());
+        CoapEndpoint.Builder endpointBuilder = new CoapEndpoint.Builder();
+        endpointBuilder.setConnector(dtlsconnector);
+        Endpoint dtlsEndpoint = endpointBuilder.build();
         dtlsEndpoint.start();
-        EndpointManager.getEndpointManager().setDefaultSecureEndpoint(dtlsEndpoint);
+        EndpointManager.getEndpointManager().setDefaultEndpoint(dtlsEndpoint);
 
         try {
             request.send();
